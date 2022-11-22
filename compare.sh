@@ -1,0 +1,1 @@
+bash ../../Documents/Computer\ Science/OSSU\ Courses/nand2tetris/tools/TextComparer.sh ../../Documents/Computer\ Science/OSSU\ Courses/nand2tetris/projects/10/ArrayTest/Main.xml XMLOutput/Main.xml
