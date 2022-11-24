@@ -11,8 +11,6 @@ public class Compiler {
     public void compile() {
 
         analyzeSyntax(); // Call tokenizer and parser on file.jack --> file.xml
-        CodeGenerator generator = new CodeGenerator(fileName);
-        generator.generateVirtualCode(); // Call generator on file.xml --> file.vm
 
     }
 
@@ -23,7 +21,7 @@ public class Compiler {
         ArrayList<Token> tokens = tokenizer.getTokens();
 
         Parser parser = new Parser(fileName, tokens);
-        parser.generateParseTree(); // creates XML
+        parser.generateCode(); // creates XML
 
     }
 }
