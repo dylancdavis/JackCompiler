@@ -1,0 +1,6 @@
+class Test {
+
+    field String aString;
+    field int anInt;
+
+}
