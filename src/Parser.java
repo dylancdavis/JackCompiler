@@ -29,7 +29,8 @@ public class Parser {
     private int argumentPos;
     private int localPos;
 
-    private int numArgs;
+    private int ifNum;
+    private int whileNum;
 
     private String className;
 
@@ -50,6 +51,8 @@ public class Parser {
         fieldPos = 0;
         argumentPos = 0;
         localPos = 0;
+        ifNum = 0;
+        whileNum = 0;
     }
 
     public void generateCode() {
@@ -133,28 +136,33 @@ public class Parser {
         eat("symbol","(");
 
         if (subroutineType.equals("method")) {
-            // If method, assume argument 0 is this.
+            // If method, assume argument 0 is this, and assign
             addLine("push argument 0");
+            addLine("pop pointer 0");
+        } else if (subroutineType.equals("constructor")) {
+            // For constructor, we need to find a new memory location
+            // and then assign it to this
+            addLine("push " + (fieldPos+1));
+            addLine("call Memory.alloc 1");
             addLine("pop pointer 0");
         }
 
         compileParameterList();
         eat("symbol",")");
+        // Args don't need to be popped. they're "assigned" by nature of the translator moving the ARG segment
         compileSubroutineBody(subroutineName); // also handles adding function declaration
         closeTag("subroutineDec");
         units.pop();
 
+        // After the body return is already good and stuff. all arguments and whatnot are added
+        // during declarations and parameter list
+        // so we can reset.
 
-
-        // TODO: Check that clearing is proper
-        // TODO: And also check that resetting positions of arguments and pos is valid
         subroutineVariables.clear();
         argumentPos = 0;
         localPos = 0;
 
-        // TODO: Resolve isVoid functionality.
-        // Calls to void methods should pop to temp after returning.
-
+        if (isVoid) { addLine("pop temp 0"); }
     }
 
     private void compileParameterList() {
@@ -198,7 +206,6 @@ public class Parser {
             compileVarDec();
         }
 
-        // TODO: Figure out how to calculate local variable number
         addLine("function " + className + "." + subroutineName + " " + localVars );
         compileStatements();
         eat("symbol","}");
@@ -297,43 +304,68 @@ public class Parser {
     }
 
     private void compileIfStatement() {
-        // TODO deal with if statement
+        int suffixNum = getIfNum();
+        String elseLabel = className + ".else." + suffixNum;
+        String endLabel = className + ".endIf." + suffixNum;
+
+        // If and conditional
         units.push("if statement");
         openTag("ifStatement");
         eat("keyword","if");
         eat("symbol","(");
+        // Pushes result of conditional on stack
         compileExpression();
+        addLine("not"); // invert the conditional
+        addLine("if-goto " + elseLabel);
         eat("symbol",")");
+
+        // Statements for if
         eat("symbol","{");
         compileStatements();
+        addLine("goto " + endLabel);
         eat("symbol","}");
+
+        // Else
+        addLine("label " + elseLabel);
         if (currentValue().equals("else")) {
             eat("keyword","else");
             eat("symbol","{");
-            compileStatements();
+            compileStatements(); // compiles else statements
             eat("symbol","}");
         }
+        addLine("label " + endLabel);
         closeTag("ifStatement");
         units.pop();
     }
 
     private void compileWhileStatment() {
-        // TODO deal with while statement
-        units.push("while statement");
+
+        int suffixNum = getWhileNum();
+        String endLabel = className + ".endWhile." + suffixNum;
         openTag("whileStatement");
+        // Conditional
         eat("keyword","while");
         eat("symbol","(");
-        compileExpression();
+        compileExpression(); // Conditional
         eat("symbol",")");
+
+        addLine("not"); // invert conditonal
+        addLine("if-goto " + endLabel);
+
+        // Statements
         eat("symbol","{");
         compileStatements();
         eat("symbol","}");
+
+        addLine("label " + endLabel);
+
         closeTag("whileStatement");
         units.pop();
     }
 
     private void compileDoStatement() {
-        // TODO deal with do statement
+        // Do statement jumps directly to a subroutine call
+        // Which will then handle itself
         units.push("doStatement");
         openTag("doStatement");
         eat("keyword","do");
@@ -344,14 +376,18 @@ public class Parser {
     }
 
     private void compileReturnStatement() {
-        // TODO deal with return statement
         units.push("return statement");
         openTag("returnStatement");
         eat("keyword","return");
         if (!currentValue().equals(";")) {
+            // this will push the result on the stack
             compileExpression();
+        } else {
+            // If no return add 0 as return value
+            addLine("push constant 0");
         }
         eat("symbol",";");
+        addLine("return");
         closeTag("returnStatement");
         units.pop();
     }
@@ -360,7 +396,6 @@ public class Parser {
         // There are three subroutine call types
         // Constructors, Methods, and Functions.
         // Note that methods don't need a dot if they're internal
-
 
         units.push("subroutine call");
 
@@ -395,33 +430,33 @@ public class Parser {
         }
         eat("symbol","(");
 
-        // Expression list compilation will push all relevant arguments onto the stack
-        // Could just do some strange global variable for each call, no?
-        // TODO: Determine number of arguments needed
-        // TODO: Resolve argument addition order
-        compileExpressionList();
-
-        // Finally, call the function with its number of args
+        // Sets the numArgs equal to the number of expressions in the list
+        numArgs = compileExpressionList();
+        // Finally, call the function with its number of args. #Args will be on the stack
         addLine("call " + classOrObject + "." + subroutineName + " " + numArgs);
-
+        // The VM implementation will automatically shift the ARG segment appropriately
 
         eat("symbol",")");
         units.pop();
     }
 
-    private void compileExpressionList() {
+    private int compileExpressionList() {
 
         units.push("expression list");
+        int numExps = 0;
         openTag("expressionList");
         if (!(currentValue().equals(")"))) {
+            numExps++;
             compileExpression();
             while (currentValue().equals(",")) {
+                numExps++;
                 eat("symbol",",");
                 compileExpression();
             }
         }
         closeTag("expressionList");
         units.pop();
+        return numExps;
     }
 
     private void compileExpression() {
@@ -430,15 +465,19 @@ public class Parser {
 
         compileTerm();
         while (operators.contains(currentValue())) {
+            // In the case of an operator, we let the two terms get on the stack
+            // Then we add the appropriate function we need
+            String operator = currentValue();
             eat("symbol");
             compileTerm();
+            addLine(getVMCommand(operator));
         }
         closeTag("expression");
         units.pop();
     }
 
     private void compileTerm() {
-        // Should be good.
+
         units.push("term");
         openTag("term");
 
@@ -459,7 +498,6 @@ public class Parser {
             addLine("push constant " + currentValue());
             eat("integerConstant");
 
-
         } else if (currentType().equals("stringConstant")) { // String
             // First let's get the String into our java format. substring to trim extra quotes.
             String stringContent = currentValue().substring(1,currentValue().length()-1);
@@ -472,6 +510,7 @@ public class Parser {
                 addLine("push constant " + Character.getNumericValue(stringContent.charAt(i)));
                 // Call appendChar function with two arguments: String as arg0 and unicode as arg1
                 addLine("call String.appendChar 2");
+                // Append char will put the string back onto the stack after adding
             }
             eat("stringConstant");
             // I think strings are actually good to go.
@@ -482,7 +521,7 @@ public class Parser {
             switch (keywordConstant) {
                 case "true":
                     addLine("push constant 1");
-                    addLine("neg"); // negative one
+                    addLine("neg"); // negative one = TRUE
                     break;
                 case "false":
                 case "null":
@@ -497,7 +536,7 @@ public class Parser {
 
         } else if (currentValue().equals("(")) { // Expression in parens
             eat("symbol","(");
-            // If in parens just do nothing. recursion will handle it
+            // If in parens just pass back to expression handler
             compileExpression();
             eat("symbol",")");
 
@@ -655,6 +694,18 @@ public class Parser {
         return ret;
     }
 
+    public int getIfNum() {
+        int ret = ifNum;
+        ifNum++;
+        return ifNum;
+    }
+
+    public int getWhileNum() {
+        int ret = whileNum;
+        whileNum++;
+        return whileNum;
+    }
+
     public String getVariableData(String name) {
         if (subroutineVariables.containsKey(name)) {
             JackVariable var = subroutineVariables.get(name);
@@ -672,10 +723,26 @@ public class Parser {
         return (subroutineVariables.containsKey(name) || classVariables.containsKey(name));
     }
 
-    public String getVMCommand(String operator) {
+    private String getVMCommand(String operator) {
         switch (operator) {
             case ("+"):
                 return "add";
+            case("-"):
+                return "sub";
+            case("*"):
+                return "call Math.multiply 2";
+            case("/"):
+                return "call Math.divide 2";
+            case("&"):
+                return "and";
+            case("|"):
+                return "or";
+            case("<"):
+                return "lt";
+            case(">"):
+                return "gt";
+            case("="):
+                return "eq";
             default:
                 throw new RuntimeException("Unrecognized operator " + operator);
         }

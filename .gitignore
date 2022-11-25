@@ -1,0 +1,6 @@
+.idea/*
+.out/*
+.JackFiles/*
+.VMOutput/*
+.XMLOutput/*
+*.sh

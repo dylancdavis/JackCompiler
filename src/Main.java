@@ -2,13 +2,9 @@ import java.io.File;
 
 public class Main {
 
-    static final String FILE_NAME = "Main";
-
     static final String JACK_DIR = "JackFiles";
     static final String XML_DIR = "XMLOutput";
     static final String VM_DIR = "VMOutput";
-
-
 
     public static void main(String[] args) {
 
