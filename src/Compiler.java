@@ -13,9 +13,7 @@ public class Compiler {
         analyzeSyntax(); // Call tokenizer and parser on file.jack --> file.xml
 
     }
-
-    // TODO: Make private once code generator is complete
-    public void analyzeSyntax() {
+    private void analyzeSyntax() {
 
         Tokenizer tokenizer = new Tokenizer(fileName);
         ArrayList<Token> tokens = tokenizer.getTokens();

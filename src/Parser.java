@@ -135,21 +135,13 @@ public class Parser {
         eat("symbol","(");
 
         if (subroutineType.equals("method")) {
-            // If method, assume argument 0 is this, and assign
-            addLine("push argument 0");
-            addLine("pop pointer 0");
-        } else if (subroutineType.equals("constructor")) {
-            // For constructor, we need to find a new memory location
-            // and then assign it to this
-            addLine("push " + (fieldPos+1));
-            addLine("call Memory.alloc 1");
-            addLine("pop pointer 0");
+            getArgumentPos();
         }
-
         compileParameterList();
         eat("symbol",")");
         // Args don't need to be popped. they're "assigned" by nature of the translator moving the ARG segment
-        compileSubroutineBody(subroutineName); // also handles adding function declaration
+
+        compileSubroutineBody(subroutineName,subroutineType); // also handles adding function declaration
         closeTag("subroutineDec");
         units.pop();
 
@@ -161,7 +153,8 @@ public class Parser {
         argumentPos = 0;
         localPos = 0;
 
-        if (isVoid) { addLine("pop temp 0"); }
+        // if (isVoid) { addLine("pop temp 0"); }
+        // ignore void- we only use these in do statements anyways
     }
 
     private void compileParameterList() {
@@ -193,7 +186,7 @@ public class Parser {
         units.pop();
     }
 
-    private void compileSubroutineBody(String subroutineName) {
+    private void compileSubroutineBody(String subroutineName, String subroutineType) {
         units.push("subroutine body");
 
         int localVars = 0;
@@ -201,11 +194,23 @@ public class Parser {
         openTag("subroutineBody");
         eat("symbol","{");
         while (currentValue().equals("var")) {
-            localVars++;
-            compileVarDec();
+            localVars += compileVarDec();
         }
 
         addLine("function " + className + "." + subroutineName + " " + localVars );
+
+        if (subroutineType.equals("method")) {
+            // If method, assume argument 0 is this, and assign
+            addLine("push argument 0");
+            addLine("pop pointer 0");
+        } else if (subroutineType.equals("constructor")) {
+            // For constructor, we need to find a new memory location
+            // and then assign it to this
+            addLine("push constant " + fieldPos);
+            addLine("call Memory.alloc 1");
+            addLine("pop pointer 0");
+        }
+
         compileStatements();
         eat("symbol","}");
         closeTag("subroutineBody");
@@ -213,7 +218,10 @@ public class Parser {
         units.pop();
     }
 
-    private void compileVarDec() {
+    private int compileVarDec() {
+
+        int localVars = 1;
+
         units.push("variable declaration");
         openTag("varDec");
         eat("keyword","var");
@@ -225,11 +233,13 @@ public class Parser {
         while(currentValue().equals(",")) {
             eat("symbol",",");
             name = currentValue();
+            localVars++;
             eat("identifier");
             subroutineVariables.put(name,new JackVariable("var",type,getPos("var")));}
         eat("symbol",";");
         closeTag("varDec");
         units.pop();
+        return localVars;
     }
 
     private void compileStatements() {
@@ -329,8 +339,13 @@ public class Parser {
 
     private void compileWhileStatment() {
 
+        units.push("while statement");
+
         int suffixNum = getWhileNum();
         String endLabel = className + ".endWhile." + suffixNum;
+        String startLabel = className + ".startWhile." + suffixNum;
+        addLine("label " + startLabel);
+
         openTag("whileStatement");
         // Conditional
         eat("keyword","while");
@@ -345,6 +360,8 @@ public class Parser {
         eat("symbol","{");
         compileStatements();
         eat("symbol","}");
+
+        addLine("goto " + startLabel);
 
         addLine("label " + endLabel);
 
@@ -362,6 +379,7 @@ public class Parser {
         eat("symbol",";");
         closeTag("doStatement");
         units.pop();
+        addLine("pop temp 0"); //discard the result
     }
 
     private void compileReturnStatement() {
@@ -404,6 +422,16 @@ public class Parser {
                 // Case: object exists as variable
                 // push that object as an argument
                 addLine("push " + getVariableData(classOrObject));
+
+                JackVariable var;
+
+                if (subroutineVariables.containsKey(classOrObject)) {
+                    var = subroutineVariables.get(classOrObject);
+                } else {
+                    var = classVariables.get(classOrObject);
+                }
+
+                classOrObject = var.getType();
                 numArgs++;
             } else {
                 // Case: object DNE, must be a class
@@ -420,7 +448,7 @@ public class Parser {
         eat("symbol","(");
 
         // Sets the numArgs equal to the number of expressions in the list
-        numArgs = compileExpressionList();
+        numArgs += compileExpressionList();
         // Finally, call the function with its number of args. #Args will be on the stack
         addLine("call " + classOrObject + "." + subroutineName + " " + numArgs);
         // The VM implementation will automatically shift the ARG segment appropriately
@@ -496,7 +524,7 @@ public class Parser {
             // Constructor pushes String's base address on the stack
             for (int i=0;i<stringContent.length();i++) {
                 // Pushes unicode # of character onto stack
-                addLine("push constant " + Character.getNumericValue(stringContent.charAt(i)));
+                addLine("push constant " + (int)stringContent.charAt(i));
                 // Call appendChar function with two arguments: String as arg0 and unicode as arg1
                 addLine("call String.appendChar 2");
                 // Append char will put the string back onto the stack after adding
@@ -649,7 +677,7 @@ public class Parser {
             case "static" -> getStaticPos();
             case "field" -> getFieldPos();
             case "argument" -> getArgumentPos();
-            case "local" -> getLocalPos();
+            case "var" -> getLocalPos();
             default -> throw new RuntimeException("Unrecognized variable kind " + kind + " in " + units.peek());
         };
     }
@@ -693,13 +721,17 @@ public class Parser {
     public String getVariableData(String name) {
         if (subroutineVariables.containsKey(name)) {
             JackVariable var = subroutineVariables.get(name);
-            if (var.getKind().equals("field")) { // For field variables we access ith position in current object
-                return "this " + var.getPos();
+            if (var.getKind().equals("var")) {
+                return "local " + var.getPos();
             }
             return var.getKind() + " " + var.getPos();
         } else if (classVariables.containsKey(name)) {
             JackVariable var = classVariables.get(name);
-            return var.getKind() + " " + var.getPos();
+            if (var.getKind().equals("field")) { // For field variables we access ith position in current object
+                return "this " + var.getPos();
+            } else {
+                return var.getKind() + " " + var.getPos();
+            }
         } else throw new RuntimeException("Variable " + name + "not found in symbol tables (has it been initialized?)");
     }
 
