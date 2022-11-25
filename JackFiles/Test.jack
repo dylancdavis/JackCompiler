@@ -3,4 +3,12 @@ class Test {
     field String aString;
     field int anInt;
 
+    function stuff() {
+
+        var int stuffInt;
+
+        let stuffInt = anInt+1;
+
+    }
+
 }
