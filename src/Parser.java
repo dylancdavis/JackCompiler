@@ -11,7 +11,6 @@ public class Parser {
 
     private Stack<String> units;
     private int indents;
-    private String outputDir;
 
     private List<String> varDecs = Arrays.asList("static","field");
     private List<String> subroutineDecs = Arrays.asList("constructor","function","method");
@@ -245,23 +244,13 @@ public class Parser {
 
     private void compileStatement() {
         switch (currentValue()) {
-            case "let":
-                compileLetStatement();
-                break;
-            case "if":
-                compileIfStatement();
-                break;
-            case "while":
-                compileWhileStatment();
-                break;
-            case "do":
-                compileDoStatement();
-                break;
-            case "return":
-                compileReturnStatement();
-                break;
-            default:
-                throw new RuntimeException("Expected statement keyword, given " + currentType() + " " + currentValue());
+            case "let" -> compileLetStatement();
+            case "if" -> compileIfStatement();
+            case "while" -> compileWhileStatment();
+            case "do" -> compileDoStatement();
+            case "return" -> compileReturnStatement();
+            default ->
+                    throw new RuntimeException("Expected statement keyword, given " + currentType() + " " + currentValue());
         }
     }
 
@@ -656,18 +645,13 @@ public class Parser {
     }
 
     private int getPos(String kind) {
-        switch(kind) {
-            case "static":
-                return getStaticPos();
-            case "field":
-                return getFieldPos();
-            case "argument":
-                return getArgumentPos();
-            case "local":
-                return getLocalPos();
-            default:
-                throw new RuntimeException("Unrecognized variable kind " + kind + " in " + units.peek());
-        }
+        return switch (kind) {
+            case "static" -> getStaticPos();
+            case "field" -> getFieldPos();
+            case "argument" -> getArgumentPos();
+            case "local" -> getLocalPos();
+            default -> throw new RuntimeException("Unrecognized variable kind " + kind + " in " + units.peek());
+        };
     }
 
     public int getStaticPos() {
@@ -724,28 +708,18 @@ public class Parser {
     }
 
     private String getVMCommand(String operator) {
-        switch (operator) {
-            case ("+"):
-                return "add";
-            case("-"):
-                return "sub";
-            case("*"):
-                return "call Math.multiply 2";
-            case("/"):
-                return "call Math.divide 2";
-            case("&"):
-                return "and";
-            case("|"):
-                return "or";
-            case("<"):
-                return "lt";
-            case(">"):
-                return "gt";
-            case("="):
-                return "eq";
-            default:
-                throw new RuntimeException("Unrecognized operator " + operator);
-        }
+        return switch (operator) {
+            case ("+") -> "add";
+            case ("-") -> "sub";
+            case ("*") -> "call Math.multiply 2";
+            case ("/") -> "call Math.divide 2";
+            case ("&") -> "and";
+            case ("|") -> "or";
+            case ("<") -> "lt";
+            case (">") -> "gt";
+            case ("=") -> "eq";
+            default -> throw new RuntimeException("Unrecognized operator " + operator);
+        };
     }
 
     private void addLine(String line) {
